@@ -13,3 +13,6 @@ data/results.json
 
 # OS cruft
 .DS_Store
+
+# Unrelated local tooling artifact, not part of this project
+.claude-flow/
