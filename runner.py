@@ -36,6 +36,9 @@ def log(msg: str):
     print(msg, file=sys.stderr, flush=True)
 
 
+SLOW_CALL_WARNING_MS = 20000  # flag anything within striking distance of the 30s limit
+
+
 async def solve_task(client: FireworksClient, tiers: dict, sem: asyncio.Semaphore, task: dict) -> dict:
     task_id = task["task_id"]
     prompt = task["prompt"]
@@ -48,9 +51,13 @@ async def solve_task(client: FireworksClient, tiers: dict, sem: asyncio.Semaphor
     async with sem:
         for attempt, use_model in enumerate([model, tiers["strong"]]):
             try:
-                answer, tokens = await client.complete(use_model, system_prompt, prompt, max_tokens)
+                answer, tokens, latency_ms = await client.complete(use_model, system_prompt, prompt, max_tokens)
                 if answer:
-                    log(f"[ok] {task_id} category={category} tier={tier} model={use_model} tokens={tokens}")
+                    warn = " ⚠ SLOW (near 30s limit)" if latency_ms >= SLOW_CALL_WARNING_MS else ""
+                    log(
+                        f"[ok] {task_id} category={category} tier={tier} model={use_model} "
+                        f"tokens={tokens} latency={latency_ms}ms{warn}"
+                    )
                     return {"task_id": task_id, "answer": answer}
             except Exception as exc:  # noqa: BLE001
                 log(f"[retry] {task_id} attempt={attempt} model={use_model} error={exc}")

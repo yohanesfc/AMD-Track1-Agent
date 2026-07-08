@@ -1,32 +1,25 @@
 # Track 1 — General-Purpose AI Agent (Token-Efficient Routing)
 
-Built to the AMD Developer Hackathon ACT II Participant Guide spec.
+Built to the actual AMD Developer Hackathon ACT II Participant Guide spec.
 
-## Overview
+## How scoring works (from the participant guide)
 
-This agent processes a batch of tasks and routes each one to the most
-cost-effective Fireworks model capable of answering it correctly. It
-optimizes for the competition's two-stage scoring model: pass an accuracy
-gate first, then minimize total tokens among submissions that pass.
+1. **Accuracy gate**: an LLM-Judge checks every answer against expected intent.
+   Fall below the threshold → excluded from the leaderboard entirely, tokens
+   don't matter at that point.
+2. **Token efficiency**: submissions that pass the gate are ranked ascending
+   by total tokens recorded by the judging proxy. Fewer tokens = higher rank.
 
-## How Scoring Works
+Critically: **local models/tokens count as zero.** All inference that counts
+must go through `FIREWORKS_BASE_URL`. So the actual routing decision in this
+track isn't "local vs. remote" — it's:
 
-1. **Accuracy gate**: an LLM-Judge checks every answer against expected
-   intent. Falling below the threshold excludes the submission from the
-   leaderboard entirely — token count becomes irrelevant at that point.
-2. **Token efficiency**: submissions that pass the gate are ranked
-   ascending by total tokens recorded by the judging proxy. Fewer tokens
-   ranks higher.
-
-Local models and tokens count as zero. All inference that counts must go
-through `FIREWORKS_BASE_URL`. The routing decision in this track is
-therefore not "local vs. remote" — it's:
-
-1. What can be resolved with **zero-cost deterministic logic** (no model
-   call)?
+1. What can be resolved with **zero-cost deterministic logic** (no model call)?
 2. For everything else, which is the **cheapest Fireworks model in
-   `ALLOWED_MODELS`** still likely to pass the accuracy gate for that
+   `ALLOWED_MODELS`** that's still likely to pass the accuracy gate for this
    task's category?
+
+That's what this scaffold does.
 
 ## Architecture
 
@@ -55,9 +48,9 @@ fireworks_client.py ----------> ONE call to FIREWORKS_BASE_URL with the
 /output/results.json
 ```
 
-## Category → Tier Mapping
+## Category → tier mapping
 
-| Category | Tier | Rationale |
+| Category | Tier | Why |
 |---|---|---|
 | Sentiment classification | cheap | mechanical, low reasoning depth |
 | Named entity recognition | cheap | pattern extraction, low reasoning depth |
@@ -68,40 +61,46 @@ fireworks_client.py ----------> ONE call to FIREWORKS_BASE_URL with the
 | Code debugging | strong | needs to actually understand the bug |
 | Code generation | strong | correctness bar is unforgiving |
 
-This is a safety-biased default: failing the accuracy gate scores zero
-regardless of tokens saved, so the harder four categories default to the
-strongest available model. Tune this table against your own eval set —
-move a category to `strong` in `prompts.py` if the cheap tier doesn't
-hold up under testing.
+This is a **safety-biased default**: failing the accuracy gate scores zero
+regardless of tokens saved, so the harder four categories default to your
+strongest available model. Tune this table once you've tested against your
+own eval set — if the cheap model holds accuracy on, say, summarization *and*
+sentiment reliably in your testing, that's already reflected here; if it
+doesn't hold up on your test set, move that category to `strong` in
+`prompts.py`.
 
-## `ALLOWED_MODELS` Handling
+## `ALLOWED_MODELS` handling
 
-`ALLOWED_MODELS` isn't published until launch day, so no model ID may be
-hardcoded (the guide explicitly forbids this — calls to un-listed models
-invalidate the submission). `model_select.py` parses a parameter-count
-token out of each model ID (`8b`, `70b`, `0p5b`, etc.), ranks ascending,
-and picks the smallest as `cheap` / largest as `strong`. Unknown-size
-models fall back to list order.
+The submitted image never calls a model outside whatever `ALLOWED_MODELS`
+the harness injects at runtime — that check is unconditional in
+`model_select.py`. Within that constraint, `select_tiers()` decides which
+allowed model is "cheap" and which is "strong":
 
-### Manual tier override
+1. **Optional override** — `CHEAP_MODEL_OVERRIDE` / `STRONG_MODEL_OVERRIDE`
+   env vars, if set *and* present in the real `ALLOWED_MODELS`, are used
+   directly. This exists because parameter count in a model's name doesn't
+   reliably predict its price — `gpt-oss-120b` is the cheapest model on
+   Fireworks despite the biggest number in its name, while smaller-sounding
+   names can cost far more per token. These are **not** baked into the
+   Dockerfile by default (see the compliance checklist below for why, and
+   for the one deliberate exception).
+2. **Fallback heuristic** — if no override matches, `_inferred_size()`
+   parses a parameter-count token out of each model ID (`8b`, `70b`, `0p5b`)
+   and ranks ascending: smallest → cheap, largest → strong. This is a
+   reasonable default, not a guarantee — as above, it can be flat-out wrong
+   on real pricing for at least one known model family.
 
-The size-in-name heuristic can be wrong — a model with a larger parameter
-count in its name is not always the more expensive one on Fireworks'
-pricing. `model_select.py` supports `CHEAP_MODEL_OVERRIDE` /
-`STRONG_MODEL_OVERRIDE` environment variables to pin specific models once
-their relative cost has been verified. An override is only honored if it
-is present in the `ALLOWED_MODELS` list actually injected at runtime —
-otherwise it silently falls back to the naming heuristic. Defaults for
-these variables are currently baked into the `Dockerfile` based on
-development-time testing; **re-verify them against the official
-`ALLOWED_MODELS` list once published on launch day** and rebuild if the
-values no longer apply.
+Practical effect: without the override, tier assignment might occasionally
+put the wrong model in the wrong tier (real cost, not accuracy) — the
+container still produces valid, scoreable output either way. With a
+correctly-set override, tiering matches real pricing. See the compliance
+checklist for when/how to set the override for your final submission.
 
-## Setup & Local Testing
+## Setup & local testing
 
 ```bash
 cp .env.example .env
-# populate .env: Fireworks API key + a couple of real model IDs
+# edit .env: put in your own Fireworks API key + a couple of real model IDs
 # you have access to, for local testing only
 
 pip install -r requirements.txt
@@ -109,10 +108,10 @@ pip install -r requirements.txt
 ```
 
 This runs `runner.py` against `data/tasks.json` (8 sample tasks, one per
-category) and writes `data/results.json`. Review the classification
-output in the log lines to sanity-check the router's decisions.
+category) and prints `data/results.json`. Read the classification output
+in the log lines to sanity-check the router's decisions.
 
-Classifier-only correctness check (no API calls, no cost):
+Quick correctness check on the classifier alone (no API calls, free):
 ```bash
 python -c "
 import json
@@ -122,11 +121,12 @@ for t in json.load(open('data/tasks.json')):
 "
 ```
 
-## Build & Push (must be linux/amd64) — via GitHub Actions (recommended)
+## Build & push (must be linux/amd64) — via GitHub Actions (recommended)
 
-The build host is ARM64, so a local `docker build` produces an ARM64
-image the judging VM cannot pull. `.github/workflows/docker-build.yml` is
-configured to build on a native amd64 GitHub Actions runner instead.
+Your OCI server is ARM64, so a plain `docker build` there produces an ARM64
+image that the judging VM can't pull. Easiest fix: let GitHub build it for
+you on a real amd64 runner. `.github/workflows/docker-build.yml` is already
+set up to do this.
 
 ```bash
 cd track1-agent
@@ -140,112 +140,102 @@ gh repo create track1-agent --public --source=. --push
 #   git push -u origin main
 ```
 
-The push triggers the workflow automatically. Monitor it under the
-**Actions** tab. On success it publishes:
+That push triggers the workflow automatically. Watch it run under the
+**Actions** tab of your repo. On success it pushes:
 
 ```
 ghcr.io/<your-github-username>/track1-agent:latest
 ```
 
-**Required manual step after the first successful run:** GitHub
-Container Registry defaults new packages to **private**. Navigate to your
-GitHub profile → **Packages** → `track1-agent` → **Package settings** →
-change visibility to **Public**. The submission rules require the image
-to be publicly pullable — verify this before submitting.
+**One manual step after the first successful run:** GitHub Container
+Registry defaults new packages to **private**. Go to your GitHub profile →
+**Packages** → `track1-agent` → **Package settings** → change visibility to
+**Public**. The submission rules require the image to be publicly pullable —
+double check this before submitting.
 
-Verify the image architecture:
+Verify it's really `linux/amd64`:
 ```bash
 docker manifest inspect ghcr.io/<you>/track1-agent:latest
 ```
 
-## Build & Push Manually (only if not using GitHub Actions)
+## Build & push manually (only if you're not using GitHub Actions)
 
-The judging VM runs `linux/amd64`. If building locally on Apple Silicon
-or an ARM64 host:
+The judging VM runs `linux/amd64`. If you're building locally on Apple
+Silicon or your ARM64 OCI box:
 
 ```bash
 docker buildx build --platform linux/amd64 --tag ghcr.io/<you>/track1-agent:latest --push .
 ```
 
-Otherwise a standard build is sufficient:
+Otherwise a standard build is fine:
 ```bash
 docker build --tag ghcr.io/<you>/track1-agent:latest .
 docker push ghcr.io/<you>/track1-agent:latest
 ```
 
-## Testing the Container Contract Locally
+## Test the real container contract locally
 
 ```bash
 mkdir -p /tmp/in /tmp/out
 cp data/tasks.json /tmp/in/tasks.json
 
-source .env
-
-docker run --rm --platform linux/amd64 \
+docker run --rm \
   -v /tmp/in:/input -v /tmp/out:/output \
-  -e FIREWORKS_API_KEY="$FIREWORKS_API_KEY" \
-  -e FIREWORKS_BASE_URL="$FIREWORKS_BASE_URL" \
-  -e ALLOWED_MODELS="$ALLOWED_MODELS" \
+  -e FIREWORKS_API_KEY=your_key \
+  -e FIREWORKS_BASE_URL=https://api.fireworks.ai/inference/v1 \
+  -e ALLOWED_MODELS=accounts/fireworks/models/llama-v3p1-8b-instruct,accounts/fireworks/models/llama-v3p1-70b-instruct \
   ghcr.io/<you>/track1-agent:latest
 
 cat /tmp/out/results.json
 ```
 
-This mirrors the harness contract exactly: mounts `/input` and
-`/output`, injects the three env vars, and expects exit 0 with a valid
-`results.json`.
+This mirrors exactly what the harness does: mounts `/input` and `/output`,
+injects the three env vars, and expects the container to exit 0 with a
+valid `results.json`.
 
-**Note on ARM64 test hosts:** running an amd64 image on an ARM64 machine
-without emulation fails with `exec format error`. Register QEMU emulation
-first if testing locally on ARM64:
-```bash
-docker run --privileged --rm tonistiigi/binfmt --install all
-```
-The judging VM runs natively on `linux/amd64`, so this only affects local
-testing — a correct manifest and a passing `docker manifest inspect` are
-the source of truth for architecture compliance, not a local emulated
-run.
-
-## Compliance Checklist
+## Compliance checklist (from the participant guide)
 
 - [x] Reads `/input/tasks.json`, writes `/output/results.json`
 - [x] Reads `FIREWORKS_API_KEY` / `FIREWORKS_BASE_URL` / `ALLOWED_MODELS`
-      purely from env — no hardcoded key, URL, or model ID in application
-      logic
+      purely from env — no hardcoded key or URL. `model_select.py` optionally
+      accepts `CHEAP_MODEL_OVERRIDE`/`STRONG_MODEL_OVERRIDE` as a *preference*,
+      but always validates them against the real `ALLOWED_MODELS` at runtime
+      and falls back to the naming heuristic if either isn't present — it
+      never calls a model outside the injected list. The Dockerfile itself
+      does not bake these in (see the final-step item below).
 - [x] No `.env` bundled in the image (`.dockerignore`)
-- [x] Every `task_id` always present in output, even on failure (empty
-      string fallback rather than omission)
+- [x] Every task_id always present in output, even on failure (empty-string
+      fallback rather than omission)
 - [x] Exits 0 on success; uncaught top-level errors exit non-zero
-- [x] No caching/hardcoding of answers — every task hits a live call (or
-      the zero-cost classifier) at runtime
-- [ ] **Outstanding**: confirm total runtime stays under 10 minutes for
-      the real (larger, hidden) task set — tune `MAX_CONCURRENCY` in
-      `.env` if needed. Current default is 6 concurrent requests.
-- [ ] **Outstanding**: push to GitHub (workflow builds + pushes
-      `linux/amd64` automatically) — then flip the GHCR package to
-      **public** before the July 11, 15:00 UTC deadline.
+- [x] No caching/hardcoding of answers — every task hits a live call (or the
+      zero-cost classifier) at runtime
+- [ ] **You still need to**: confirm total runtime stays under 10 minutes for
+      the real (larger, hidden) task set — tune `MAX_CONCURRENCY` in `.env`
+      if needed. Current default is 6 concurrent requests.
+- [ ] **You still need to**: push to GitHub (workflow builds + pushes
+      `linux/amd64` automatically) — then flip the GHCR package to **public**
+      before the July 11, 15:00 UTC deadline.
+- [ ] **Do this last, right before submitting**: once the official launch-day
+      `ALLOWED_MODELS` is confirmed, verify (or re-verify) which of those
+      models is actually cheapest/strongest by real pricing — don't trust
+      parameter count in the name (`gpt-oss-120b` is the cheapest model on
+      Fireworks despite having the largest number in its name). Add
+      `CHEAP_MODEL_OVERRIDE` / `STRONG_MODEL_OVERRIDE` as `ENV` lines in the
+      Dockerfile with the confirmed-correct values, then rebuild and push
+      one final time. Skipping this isn't a hard failure — the heuristic
+      fallback still produces a valid, scoreable submission — but tier
+      assignment may end up backwards on cost, wasting tokens on the ranking
+      even though accuracy is unaffected.
 
-## Known Trade-off: Baked-in Tier Overrides
-
-`Dockerfile` sets `CHEAP_MODEL_OVERRIDE` / `STRONG_MODEL_OVERRIDE` as
-image defaults. This is a deliberate trade-off: the harness only injects
-`FIREWORKS_API_KEY`, `FIREWORKS_BASE_URL`, and `ALLOWED_MODELS`, so
-without baking these in, every scored run would fall back to the naming
-heuristic — which is known to misprice at least one tested model. The
-override is validated against the runtime `ALLOWED_MODELS` list before
-use and no-ops safely if the official launch-day list differs from what
-was available during development. Re-verify and rebuild once the official
-list is confirmed.
-
-## Where to Spend Remaining Time
+## Where to spend your remaining time
 
 1. Run `scripts/run_local.sh` against harder/adversarial variants of each
-   category (unseen prompt variants are what's actually evaluated) and
-   watch for any category where the `cheap` tier visibly struggles — move
-   it to `strong` in `prompts.py` if so.
-2. Once `ALLOWED_MODELS` is published, re-check `select_tiers()` picked
-   the models expected, and confirm the baked-in overrides still apply.
+   category (unseen prompt variants are what's actually evaluated) and watch
+   for any category where the `cheap` tier visibly struggles — move it to
+   `strong` in `prompts.py` if so.
+2. Once `ALLOWED_MODELS` is published, re-check `select_tiers()` picked the
+   models you'd expect.
 3. Build, push, and run the container contract test above end-to-end at
-   least once before the deadline — a broken `/input`/`/output` contract
-   or a non-`linux/amd64` image scores zero regardless of routing logic
-   quality.
+   least once before the deadline — a broken `/input`/`/output` contract or
+   a non-`linux/amd64` image scores zero regardless of how good the routing
+   logic is.

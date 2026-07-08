@@ -76,11 +76,11 @@ SYSTEM_PROMPTS = {
 # (gpt-oss-120b et al.) enough room to finish their hidden reasoning *and*
 # still write a final answer instead of getting cut off mid-thought.
 MAX_TOKENS_BY_CATEGORY = {
-    "factual_knowledge": 650,
+    "factual_knowledge": 800,
     "math_reasoning": 900,
-    "sentiment_classification": 400,
-    "summarization": 500,
-    "named_entity_recognition": 450,
+    "sentiment_classification": 600,
+    "summarization": 700,
+    "named_entity_recognition": 900,
     "code_debugging": 1200,
     "logical_reasoning": 1500,
     "code_generation": 1200,

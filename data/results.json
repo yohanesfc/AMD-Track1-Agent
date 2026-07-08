@@ -1,19 +1,19 @@
 [
   {
     "task_id": "t1",
-    "answer": "When you enter a URL, the browser first looks for the domain\u2019s IP address in its own cache, then in the operating system\u2019s cache and the hosts file; if it\u2019s not found, it asks the configured recursive resolver (often your ISP\u2019s DNS server). That resolver performs an iterative lookup: it queries a root name server for the TLD\u2019s servers, then the TLD server for the domain\u2019s authoritative name server, and finally the authoritative server returns the IP address (optionally validated by DNSSEC). The browser receives this address, caches it, and then opens a TCP/UDP connection to the server to retrieve the webpage."
+    "answer": "The user asks: \"Explain how DNS resolution works when you type a URL into a browser.\" The system instructions: \"Your response MUST begin with the answer itself as the first sentence \u2014 no numbered analysis, no restating the question, no preamble. 2-4 sentences total.\"\n\nSo I need to answer in 2-4 sentences, first sentence is the answer itself. Actually says \"Your response MUST begin with the answer itself as the first sentence \u2014 no numbered analysis, no restating the question, no preamble.\" That seems ambiguous: \"begin with the answer itself as the first sentence\". I think they want the first sentence to directly answer the question. So they don't want me to preface with \"Sure, here's how it works\". They want the first sentence to be the answer. So first sentence: \"When you type a URL into a browser, the browser first checks its local DNS cache, and if not found, it queries the configured DNS resolver (usually your ISP's or a public resolver) which iteratively queries the DNS hierarchy to resolve the domain name to an IP address.\" That would be a sentence covering the process. Then follow up with additional sentences describing steps: the resolver contacts root servers, TLD servers, authoritative DNS servers, then returns the IP to browser, which then establishes a TCP connection, etc. But must be 2-4 sentences. The answer must be succinct. Let's aim for 3 sentences.\n\nFirst sentence: \"When you type a URL into a browser, the browser first queries its own DNS cache and then sends a request to the configured DNS resolver (typically your ISP's resolver) to resolve the domain name into an IP address.\" That's one sentence, but we need to keep it concise. That is okay. Then second sentence: \"The resolver then performs iterative queries, starting with the root servers, then the top\u2011level domain (TLD) servers, and finally the authoritative name server for the domain, which returns the target IP address.\" That's second. Third sentence: \"Once the browser receives the IP address, it uses it to open a TCP connection (or UDP for HTTP/3) and initiates the HTTP(S) request to the web server.\" That's third. That's total of three sentences. That should be fine.\n\nMake sure to not include any extra preamble, no bullet points, no numbered list. Answer must be 2-4 sentences, but the first sentence must be the answer. The answer's first sentence should start with \"When you type a URL...\" That is fine. Also the question: \"Explain how DNS resolution works when you type a URL into a browser.\" So it's about DNS resolution, not the HTTP request. However, it's fine to mention the final steps as part of resolution. But maybe better to keep focus on DNS resolution. However, it's okay to mention the subsequent step. But we could say \"the browser uses the resolved IP to establish a connection.\" That touches on the following step, which is more about HTTP. Maybe fine.\n\nBut to be safe, keep it limited to DNS resolution steps: caching, resolver, root, TLD, authoritative, return IP. That's it. The third sentence could recap: \"The resolved IP address is then used by the browser to open a connection to the web server.\" That seems appropriate.\n\nBut we need to check length: \"When you type a URL into a browser, the browser first checks its own DNS cache, and if not found it asks the configured DNS resolver (usually your ISP's) to translate the domain name into an IP address.\" That's first sentence. Then second sentence: \"The resolver then performs iterative queries, contacting root servers to find the authoritative name servers for the top\u2011level domain, then the authoritative server for the domain itself, which finally returns the IP address.\" Then third: \"The resolved IP address is returned to the browser, which uses it to establish a TCP connection (or UDP for HTTP/3) to the target"
   },
   {
     "task_id": "t2",
-    "answer": "Answer: $736.95\n1200 * (0.85)^3 = 736.95"
+    "answer": ""
   },
   {
     "task_id": "t3",
-    "answer": "Sentiment: positive. Reason: despite onboarding and support problems, the reviewer praises the core product\u2019s performance."
+    "answer": "Sentiment: neutral. Reason: review contains mixed feedback with both negative (confusing onboarding, no support response) and positive (core product works well) elements that balance each other out."
   },
   {
     "task_id": "t4",
-    "answer": "Network engineers now depend on automated topology discovery tools that continuously scan and diagram networks, preventing the outdated documentation, misconfigurations, and slow incident response caused by manual methods as infrastructure grows."
+    "answer": "Automated topology discovery tools that continuously scan and diagram networks are increasingly essential for network engineers to maintain accurate documentation and prevent the misconfigurations and slower incident response that result from manual documentation becoming outdated as infrastructure scales."
   },
   {
     "task_id": "t5",
@@ -21,14 +21,14 @@
   },
   {
     "task_id": "t6",
-    "answer": "```python\ndef average(nums):\n    total = 0\n    for n in nums:\n        total += n\n    # Remove the erroneous + 1 that incorrectly adds 1 to the calculated average\n    return total / len(nums)\n```"
+    "answer": "```python\ndef average(nums):\n    total = 0\n    for n in nums:\n        total += n\n    # Fixed: removed erroneous +1 so the function returns the true mean\n    return total / len(nums)\n```"
   },
   {
     "task_id": "t7",
-    "answer": "Answer: It is not uniquely determined: either Ana=networking, Ben=security, Cara=ML, or Ana=ML, Ben=networking, Cara=security. Both assignments satisfy all given constraints."
+    "answer": "Answer: There are two valid solutions: either Ana\u2013networking, Ben\u2013security, Cara\u2013ML, or Ana\u2013ML, Ben\u2013networking, Cara\u2013security.\n\nSince Ana cannot do security, she must be either networking or ML, and each choice forces the remaining assignments while satisfying the other two constraints. Therefore the clues do not determine a unique specialization."
   },
   {
     "task_id": "t8",
-    "answer": "```python\ndef is_palindrome(s: str) -> bool:\n    \"\"\"Return True if the string is a palindrome, ignoring case and non-alphanumeric characters.\"\"\"\n    filtered = [c.lower() for c in s if c.isalnum()]\n    return filtered == filtered[::-1]\n```"
+    "answer": "```python\ndef is_palindrome(s: str) -> bool:\n    \"\"\"Return True if s is a palindrome, ignoring case and non-alphanumeric characters.\"\"\"\n    cleaned = ''.join(ch.lower() for ch in s if ch.isalnum())\n    return cleaned == cleaned[::-1]\n```"
   }
 ]
