@@ -20,9 +20,9 @@ TIER_BY_CATEGORY = {
 
 SYSTEM_PROMPTS = {
     "factual_knowledge": (
-        "Answer in 2-4 sentences, directly and accurately. Do not show a "
-        "numbered analysis process, do not restate the question, do not "
-        "explain your approach. Output only the final answer."
+        "Your response MUST begin with the answer itself as the first "
+        "sentence -- no numbered analysis, no restating the question, no "
+        "preamble. 2-4 sentences total."
     ),
     "math_reasoning": (
         "Your response MUST begin with 'Answer: <value>' as the very first "
@@ -31,24 +31,29 @@ SYSTEM_PROMPTS = {
         "analysis process or restate the question."
     ),
     "sentiment_classification": (
-        "Output only one line, exactly in this format: "
+        "Your response MUST begin with the exact line "
         "'Sentiment: <positive|negative|neutral>. Reason: <short clause>.' "
-        "No numbered analysis steps, no restating the input text."
+        "as the very first line, with nothing before it. No numbered "
+        "analysis steps, no restating the input text, no second-guessing "
+        "out loud."
     ),
     "summarization": (
-        "Output only the summary itself, strictly following any length or "
-        "format constraint stated in the prompt. No numbered analysis "
-        "steps, no preamble, no restating the instructions."
+        "Your response MUST begin with the summary itself as the very "
+        "first word -- no numbered analysis, no draft/revision process, no "
+        "restating the instructions. Strictly follow any length/format "
+        "constraint stated in the prompt."
     ),
     "named_entity_recognition": (
-        "Output only the entities, grouped by type (Person/Organization/"
-        "Location/Date), one line per type, comma-separated values. Omit "
-        "empty types. No numbered analysis steps, no preamble."
+        "Your response MUST begin with the entity list itself as the very "
+        "first line -- no numbered analysis steps, no preamble. Group by "
+        "type (Person/Organization/Location/Date), one line per type, "
+        "comma-separated values, omit empty types."
     ),
     "code_debugging": (
-        "Output only the corrected code in a single code block, with a "
-        "one-line comment above each fix explaining it. No numbered "
-        "analysis steps, no explanation outside the code block."
+        "Your response MUST begin with the code block itself as the very "
+        "first thing -- no numbered analysis steps before it. Return the "
+        "corrected code in a single code block, with a one-line comment "
+        "above each fix. Nothing outside the code block."
     ),
     "logical_reasoning": (
         "Your response MUST begin with 'Answer: <conclusion>' as the very "
@@ -58,23 +63,24 @@ SYSTEM_PROMPTS = {
         "but the answer line comes first no matter what."
     ),
     "code_generation": (
-        "Output only the requested code in a single code block with a "
-        "one-line docstring. No numbered analysis steps, no explanation "
-        "outside the code block."
+        "Your response MUST begin with the code block itself as the very "
+        "first thing -- no numbered analysis steps before it. Return the "
+        "requested code in a single code block with a one-line docstring. "
+        "Nothing outside the code block."
     ),
 }
 
 # Rough output budget per category -- generous enough to survive a model
 # that leaks some reasoning before the final answer despite instructions
-# (observed with glm-5p1), and to give reasoning models (gpt-oss-120b et
-# al.) enough room to finish their hidden reasoning *and* still write a
-# final answer instead of getting cut off mid-thought.
+# (observed with both glm-5p1 and glm-5p2), and to give reasoning models
+# (gpt-oss-120b et al.) enough room to finish their hidden reasoning *and*
+# still write a final answer instead of getting cut off mid-thought.
 MAX_TOKENS_BY_CATEGORY = {
     "factual_knowledge": 650,
     "math_reasoning": 900,
-    "sentiment_classification": 250,
-    "summarization": 350,
-    "named_entity_recognition": 300,
+    "sentiment_classification": 400,
+    "summarization": 500,
+    "named_entity_recognition": 450,
     "code_debugging": 1200,
     "logical_reasoning": 1500,
     "code_generation": 1200,
