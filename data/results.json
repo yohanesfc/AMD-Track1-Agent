@@ -1,0 +1,34 @@
+[
+  {
+    "task_id": "t1",
+    "answer": "When you enter a URL, the browser first looks for the domain\u2019s IP address in its own cache, then in the operating system\u2019s cache and the hosts file; if it\u2019s not found, it asks the configured recursive resolver (often your ISP\u2019s DNS server). That resolver performs an iterative lookup: it queries a root name server for the TLD\u2019s servers, then the TLD server for the domain\u2019s authoritative name server, and finally the authoritative server returns the IP address (optionally validated by DNSSEC). The browser receives this address, caches it, and then opens a TCP/UDP connection to the server to retrieve the webpage."
+  },
+  {
+    "task_id": "t2",
+    "answer": "Answer: $736.95\n1200 * (0.85)^3 = 736.95"
+  },
+  {
+    "task_id": "t3",
+    "answer": "Sentiment: positive. Reason: despite onboarding and support problems, the reviewer praises the core product\u2019s performance."
+  },
+  {
+    "task_id": "t4",
+    "answer": "Network engineers now depend on automated topology discovery tools that continuously scan and diagram networks, preventing the outdated documentation, misconfigurations, and slow incident response caused by manual methods as infrastructure grows."
+  },
+  {
+    "task_id": "t5",
+    "answer": "Person: Maria Chen\nOrganization: Fireworks AI, DeepMind\nLocation: San Francisco\nDate: March 3, 2025"
+  },
+  {
+    "task_id": "t6",
+    "answer": "```python\ndef average(nums):\n    total = 0\n    for n in nums:\n        total += n\n    # Remove the erroneous + 1 that incorrectly adds 1 to the calculated average\n    return total / len(nums)\n```"
+  },
+  {
+    "task_id": "t7",
+    "answer": "Answer: It is not uniquely determined: either Ana=networking, Ben=security, Cara=ML, or Ana=ML, Ben=networking, Cara=security. Both assignments satisfy all given constraints."
+  },
+  {
+    "task_id": "t8",
+    "answer": "```python\ndef is_palindrome(s: str) -> bool:\n    \"\"\"Return True if the string is a palindrome, ignoring case and non-alphanumeric characters.\"\"\"\n    filtered = [c.lower() for c in s if c.isalnum()]\n    return filtered == filtered[::-1]\n```"
+  }
+]

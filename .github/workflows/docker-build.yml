@@ -1,0 +1,43 @@
+name: Build and push track1-agent
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}   # lets you trigger a rebuild manually from the Actions tab
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/track1-agent
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest   # GitHub's runner is already linux/amd64 -- no QEMU needed
+    permissions:
+      contents: read
+      packages: write        # required to push to GHCR
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # no manual secret needed
+
+      - name: Build and push (linux/amd64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Print image reference
+        run: echo "Pushed ${{ env.IMAGE_NAME }}:latest"
