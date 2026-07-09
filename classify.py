@@ -30,6 +30,13 @@ _CODE_MARKERS = re.compile(
 _BUG_WORDS = re.compile(
     r"\b(bug|fix|error|broken|not working|traceback|exception|incorrect output|debug)\b", re.I
 )
+# Prose debugging questions ("my function returns the wrong result") often
+# describe code without a literal snippet -- no ```, no `def foo(`, nothing
+# _CODE_MARKERS can see. This catches that case via code-ish nouns instead,
+# so code_debugging isn't limited to prompts that happen to paste code.
+_CODE_CONTEXT_WORDS = re.compile(
+    r"\b(function|method|class|script|program|algorithm|variable|my code|the code)\b", re.I
+)
 _GEN_WORDS = re.compile(
     r"\b(write (a |an )?(\w+\s+){0,2}function|implement (a |an )?function|write code|"
     r"create (a |an )?function|write a program)\b", re.I
@@ -62,12 +69,10 @@ _SUMMARY_WORDS = re.compile(
 def classify(prompt: str) -> str:
     text = prompt.strip()
 
-    if _BUG_WORDS.search(text) and _CODE_MARKERS.search(text):
+    if _BUG_WORDS.search(text) and (_CODE_MARKERS.search(text) or _CODE_CONTEXT_WORDS.search(text)):
         return "code_debugging"
     if _GEN_WORDS.search(text):
         return "code_generation"
-    if _CODE_MARKERS.search(text) and _BUG_WORDS.search(text):
-        return "code_debugging"
 
     if _LOGIC_WORDS.search(text):
         return "logical_reasoning"
