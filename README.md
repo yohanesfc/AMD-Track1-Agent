@@ -58,17 +58,12 @@ fireworks_client.py ----------> ONE call to FIREWORKS_BASE_URL with the
 | Factual knowledge | cheap | recall-heavy, not multi-step |
 | Math reasoning | strong | multi-step arithmetic error-prone on small models |
 | Logical/deductive reasoning | strong | constraint satisfaction needs real reasoning |
-| Code debugging | strong_code | needs to actually understand the bug |
-| Code generation | strong_code | correctness bar is unforgiving |
+| Code debugging | strong | needs to actually understand the bug |
+| Code generation | strong | correctness bar is unforgiving |
 
 This is a **safety-biased default**: failing the accuracy gate scores zero
 regardless of tokens saved, so the harder six categories default to a
-strong model. `strong_code` is a separate tier from `strong` because some
-model families ship a coding-specialized fine-tune alongside their
-generalist model at the same price (e.g. Kimi K2.7 Code vs Kimi K2.6) —
-when that's the case, routing code tasks to the specialized variant is
-free accuracy upside; it falls back to the `strong` model otherwise. Tune
-this table once you've tested against your own eval set — if the cheap
+strong model. Tune this table once you've tested against your own eval set — if the cheap
 model holds accuracy on, say, summarization *and* sentiment reliably in
 your testing, that's already reflected here; if it doesn't hold up on your
 test set, move that category to `strong` in `prompts.py`.
@@ -78,15 +73,15 @@ test set, move that category to `strong` in `prompts.py`.
 The submitted image never calls a model outside whatever `ALLOWED_MODELS`
 the harness injects at runtime — that check is unconditional in
 `model_select.py`. Within that constraint, `select_tiers()` decides which
-allowed model is "cheap", "strong", and "strong_code":
+allowed model is "cheap" and "strong":
 
-1. **Optional override** — `CHEAP_MODEL_OVERRIDE` / `STRONG_MODEL_OVERRIDE` /
-   `STRONG_CODE_MODEL_OVERRIDE` env vars, if set *and* present in the real
-   `ALLOWED_MODELS`, are used directly (independently of each other — you
-   can set just one). This exists because parameter count in a model's name
-   doesn't reliably predict its price or even appear at all — `gpt-oss-120b`
-   is the cheapest model on Fireworks despite the biggest number in its
-   name, while ids like `minimax-m3` or `kimi-k2p7-code` carry no
+1. **Optional override** — `CHEAP_MODEL_OVERRIDE` / `STRONG_MODEL_OVERRIDE`
+   env vars, if set *and* present in the real `ALLOWED_MODELS`, are used
+   directly (independently of each other — you can set just one). This
+   exists because parameter count in a model's name doesn't reliably
+   predict its price or even appear at all — `gpt-oss-120b` is the
+   cheapest model on Fireworks despite the biggest number in its name,
+   while ids like `minimax-m3` or `kimi-k2p7-code` carry no
    parameter-count token whatsoever, so the heuristic can't rank them
    against each other. These are **not** baked into the Dockerfile by
    default (see the compliance checklist below for why, and for the one
@@ -94,9 +89,9 @@ allowed model is "cheap", "strong", and "strong_code":
 2. **Fallback heuristic** — for any tier without a matching override,
    `_inferred_size()` parses a parameter-count token out of each model ID
    (`8b`, `70b`, `0p5b`) and ranks ascending: smallest → cheap, largest →
-   strong; `strong_code` falls back to the resolved `strong` model. This is
-   a reasonable default, not a guarantee — as above, it can be flat-out
-   wrong, or a no-op, for model families that don't encode size in the id.
+   strong. This is a reasonable default, not a guarantee — as above, it can
+   be flat-out wrong, or a no-op, for model families that don't encode
+   size in the id.
 
 Practical effect: without the override, tier assignment might occasionally
 put the wrong model in the wrong tier (real cost, not accuracy) — the
@@ -206,13 +201,13 @@ valid `results.json`.
 - [x] Reads `/input/tasks.json`, writes `/output/results.json`
 - [x] Reads `FIREWORKS_API_KEY` / `FIREWORKS_BASE_URL` / `ALLOWED_MODELS`
       purely from env — no hardcoded key or URL. `model_select.py` optionally
-      accepts `CHEAP_MODEL_OVERRIDE`/`STRONG_MODEL_OVERRIDE`/
-      `STRONG_CODE_MODEL_OVERRIDE` as a *preference*, but always validates
-      them against the real `ALLOWED_MODELS` at runtime and falls back to
-      the naming heuristic if any isn't present — it never calls a model
-      outside the injected list. The Dockerfile bakes in a tested,
-      confirmed-correct set of these as of 2026-07-09 (see the final-step
-      item below for why this still needs a re-check before submitting).
+      accepts `CHEAP_MODEL_OVERRIDE`/`STRONG_MODEL_OVERRIDE` as a
+      *preference*, but always validates them against the real
+      `ALLOWED_MODELS` at runtime and falls back to the naming heuristic if
+      either isn't present — it never calls a model outside the injected
+      list. The Dockerfile bakes in a tested, confirmed-correct set of
+      these as of 2026-07-09 (see the final-step item below for why this
+      still needs a re-check before submitting).
 - [x] No `.env` bundled in the image (`.dockerignore`)
 - [x] Every task_id always present in output, even on failure (empty-string
       fallback rather than omission)
@@ -233,10 +228,10 @@ valid `results.json`.
       before the July 11, 15:00 UTC deadline.
 - [ ] **Do this last, right before submitting**: the Dockerfile currently
       bakes in `CHEAP_MODEL_OVERRIDE=minimax-m3`,
-      `STRONG_MODEL_OVERRIDE=kimi-k2p7-code`,
-      `STRONG_CODE_MODEL_OVERRIDE=kimi-k2p7-code` — tested 2026-07-09 with a
-      live Fireworks key (k2p7-code beat k2p6 on both logical_reasoning
-      format-compliance and math_reasoning token count, at the same price).
+      `STRONG_MODEL_OVERRIDE=kimi-k2p7-code` (used for all "strong" tier
+      categories, including code) — tested 2026-07-09 with a live Fireworks
+      key (k2p7-code beat k2p6 on both logical_reasoning format-compliance
+      and math_reasoning token count, at the same price).
       Once the official launch-day `ALLOWED_MODELS` is confirmed, re-verify
       these ids still match exactly (aliases/versions can change) and that
       pricing hasn't shifted — don't trust parameter count in the name

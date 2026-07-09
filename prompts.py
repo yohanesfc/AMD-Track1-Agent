@@ -14,10 +14,8 @@ TIER_BY_CATEGORY = {
     "factual_knowledge": "cheap",
     "math_reasoning": "strong",
     "logical_reasoning": "strong",
-    # Routed to a coding-specialized strong model rather than the general
-    # "strong" tier -- see model_select.py's "strong_code" tier.
-    "code_debugging": "strong_code",
-    "code_generation": "strong_code",
+    "code_debugging": "strong",
+    "code_generation": "strong",
 }
 
 SYSTEM_PROMPTS = {

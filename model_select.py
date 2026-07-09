@@ -1,6 +1,5 @@
 """
-Picks a "cheap", "strong", and "strong_code" model from ALLOWED_MODELS at
-runtime.
+Picks a "cheap" and "strong" model from ALLOWED_MODELS at runtime.
 
 ALLOWED_MODELS isn't known until launch day, so nothing here can hardcode
 a model ID -- everything is inferred from the list the harness injects.
@@ -13,14 +12,6 @@ make, but the deterministic pre-filter in classify.py/runner.py still
 saves tokens on anything answerable without a call... though for this
 track every task needs a real answer, so realistically all tasks call
 the model -- the savings come entirely from picking the right tier).
-
-"strong_code" exists separately from "strong" because some model families
-ship a coding-specialized fine-tune alongside their generalist model at
-the same price (e.g. Kimi K2.7 Code vs Kimi K2.6) -- when that's the case,
-routing code_debugging/code_generation to the specialized variant is free
-accuracy upside. Falls back to the "strong" model when no distinct code
-model is configured, so it's a no-op if your ALLOWED_MODELS/overrides
-don't distinguish the two.
 """
 import os
 import re
@@ -52,24 +43,20 @@ def load_allowed_models() -> list[str]:
 
 def select_tiers(models: list[str]) -> dict[str, str]:
     """
-    Returns {"cheap": model_id, "strong": model_id, "strong_code": model_id}.
+    Returns {"cheap": model_id, "strong": model_id}.
 
-    Checks CHEAP_MODEL_OVERRIDE / STRONG_MODEL_OVERRIDE /
-    STRONG_CODE_MODEL_OVERRIDE env vars first -- useful because the
-    size-in-name heuristic can be flat-out wrong (e.g. gpt-oss-120b is the
-    cheapest model on Fireworks despite having the biggest parameter count
-    in its name; smaller-sounding names like glm-5p2 can cost far more per
-    token; and model families like MiniMax/Kimi don't encode a parameter
-    count in the id at all, so the heuristic can't rank them meaningfully).
-    Set these once you've checked real pricing for whatever ALLOWED_MODELS
-    actually contains. Each override is only honored if it's present in
-    ALLOWED_MODELS -- never routes to a model outside the list the harness
-    gave you. Overrides are independent: you can set just CHEAP_MODEL_OVERRIDE
-    and let the other two fall back to the heuristic/strong model.
-
-    STRONG_CODE_MODEL_OVERRIDE falls back to the resolved "strong" model
-    if unset or not in ALLOWED_MODELS -- so leaving it unset is safe and
-    just means code categories use the same model as math/logical reasoning.
+    Checks CHEAP_MODEL_OVERRIDE / STRONG_MODEL_OVERRIDE env vars first --
+    useful because the size-in-name heuristic can be flat-out wrong (e.g.
+    gpt-oss-120b is the cheapest model on Fireworks despite having the
+    biggest parameter count in its name; smaller-sounding names like
+    glm-5p2 can cost far more per token; and model families like
+    MiniMax/Kimi don't encode a parameter count in the id at all, so the
+    heuristic can't rank them meaningfully). Set these once you've checked
+    real pricing for whatever ALLOWED_MODELS actually contains. Each
+    override is only honored if it's present in ALLOWED_MODELS -- never
+    routes to a model outside the list the harness gave you. Overrides are
+    independent: you can set just CHEAP_MODEL_OVERRIDE and let the other
+    fall back to the heuristic.
     """
     ranked = sorted(models, key=_inferred_size)
     default_cheap = ranked[0]
@@ -77,13 +64,11 @@ def select_tiers(models: list[str]) -> dict[str, str]:
 
     cheap_override = os.environ.get("CHEAP_MODEL_OVERRIDE", "").strip()
     strong_override = os.environ.get("STRONG_MODEL_OVERRIDE", "").strip()
-    strong_code_override = os.environ.get("STRONG_CODE_MODEL_OVERRIDE", "").strip()
 
     cheap = cheap_override if cheap_override in models else default_cheap
     strong = strong_override if strong_override in models else default_strong
-    strong_code = strong_code_override if strong_code_override in models else strong
 
-    return {"cheap": cheap, "strong": strong, "strong_code": strong_code}
+    return {"cheap": cheap, "strong": strong}
 
 
 def resolve_model(tier: str, tiers: dict[str, str]) -> str:
