@@ -12,8 +12,11 @@ Per task:
      model once more before giving up (never omit a task_id from output)
 
 Always writes a valid results.json and exits 0, even if some individual
-tasks failed after retries -- a missing/malformed file scores zero for
-everything, a best-effort partial answer scores zero for just that item.
+tasks failed after retries, timed out against the global deadline, or
+were malformed in the input -- a missing/malformed *file* scores zero for
+everything (unrecoverable, so that case still exits non-zero), but every
+task_id that was actually present in the input is guaranteed a row in the
+output, empty-string answer at worst.
 """
 import asyncio
 import json
@@ -67,12 +70,33 @@ async def solve_task(client: FireworksClient, tiers: dict, sem: asyncio.Semaphor
         return {"task_id": task_id, "answer": ""}
 
 
+def _load_tasks(path: str) -> list[dict]:
+    """Keeps any task with a task_id even if other fields are malformed, so
+    every task_id in the input is still guaranteed a row in the output --
+    only a task missing task_id entirely (nothing to key the result on) is
+    dropped."""
+    with open(path) as f:
+        raw_tasks = json.load(f)
+
+    tasks = []
+    for i, t in enumerate(raw_tasks):
+        task_id = t.get("task_id") if isinstance(t, dict) else None
+        if not task_id:
+            log(f"[skip] malformed task at index {i}, no task_id: {t!r}")
+            continue
+        tasks.append({"task_id": task_id, "prompt": t.get("prompt") or ""})
+
+    if len(tasks) != len(raw_tasks):
+        log(f"Loaded {len(tasks)} usable tasks from {path} ({len(raw_tasks) - len(tasks)} skipped)")
+    else:
+        log(f"Loaded {len(tasks)} tasks from {path}")
+    return tasks
+
+
 async def run():
     start = time.monotonic()
 
-    with open(INPUT_PATH) as f:
-        tasks = json.load(f)
-    log(f"Loaded {len(tasks)} tasks from {INPUT_PATH}")
+    tasks = _load_tasks(INPUT_PATH)
 
     models = load_allowed_models()
     tiers = select_tiers(models)
@@ -81,11 +105,22 @@ async def run():
     client = FireworksClient()
     sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
-    results = await asyncio.gather(*(solve_task(client, tiers, sem, t) for t in tasks))
+    results = []
+    if tasks:
+        running = [asyncio.ensure_future(solve_task(client, tiers, sem, t)) for t in tasks]
+        _done, pending = await asyncio.wait(running, timeout=MAX_RUNTIME_SECONDS)
+
+        for coro, t in zip(running, tasks):
+            if coro in pending:
+                coro.cancel()
+                log(f"[timeout] {t['task_id']} still running at the {MAX_RUNTIME_SECONDS}s deadline, marking failed")
+                results.append({"task_id": t["task_id"], "answer": ""})
+            else:
+                results.append(coro.result())
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "w") as f:
-        json.dump(list(results), f, indent=2)
+        json.dump(results, f, indent=2)
 
     elapsed = time.monotonic() - start
     log(f"Wrote {len(results)} results to {OUTPUT_PATH} in {elapsed:.1f}s")
