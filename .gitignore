@@ -15,6 +15,10 @@ data/results.json
 # downloads it from the HF hub at image build time instead)
 local_models/
 
+# Presentation material -- not part of the submission code
+Text.txt
+*.pptx
+
 # OS cruft
 .DS_Store
 
