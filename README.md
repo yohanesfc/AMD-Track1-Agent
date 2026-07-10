@@ -230,33 +230,50 @@ valid `results.json`.
       including every mixed-sentiment, sarcastic, and model-disagreement
       case). `LOCAL_PREFILTER=off` disables the layer entirely.
 - [x] Confirmed runtime stays well under the 10-minute budget: stress-tested
-      2026-07-09 with 32 and 64 synthetic tasks (4x the sample set, covering
-      all 8 categories) against the real Fireworks key at
-      `MAX_CONCURRENCY` 6/10/15/20/40/64 — every run finished in 10-37
-      seconds with zero hard failures (one transient retry at concurrency
-      40, recovered automatically). Kept the default of 6: throughput isn't
-      the bottleneck at this task-set scale, and a lower concurrency is
-      gentler on whatever rate limit the harness's real Fireworks key has
-      (untested, may differ from the sandbox key used here).
-- [ ] **You still need to**: push to GitHub (workflow builds + pushes
-      `linux/amd64` automatically) — then flip the GHCR package to **public**
-      before the July 11, 15:00 UTC deadline.
-- [ ] **Do this last, right before submitting**: the Dockerfile currently
-      bakes in `CHEAP_MODEL_OVERRIDE=minimax-m3`,
-      `STRONG_MODEL_OVERRIDE=kimi-k2p7-code` (used for all "strong" tier
-      categories, including code) — tested 2026-07-09 with a live Fireworks
-      key (k2p7-code beat k2p6 on both logical_reasoning format-compliance
-      and math_reasoning token count, at the same price).
+      2026-07-11 at judging scale — 1,200 synthetic tasks (150x the sample
+      set, covering all 8 categories) against the real Fireworks key at
+      `MAX_CONCURRENCY` 64 and 200. Both runs answered all 1,200 in ~120s
+      (~4.5x under the 540s deadline guard) with zero hard failures and zero
+      lost task_ids. Under this load the real Fireworks key *does* rate-limit
+      (HTTP 429: ~21% of calls at concurrency 64, ~30% at 200) — every 429
+      was absorbed by the retry + fallback path, so no task was lost. Tail
+      latency at concurrency 200 brushes the 30s/request rule (p99 27s, max
+      32s), while concurrency 64 stays safe (p99 16s, max 24s). Routing also
+      held accuracy under load: an objective spot-check (math/logic/factual/
+      sentiment, known ground truth) scored 100% with 0 degenerate answers
+      across all 1,200 outputs — synthetic set, not the official judge, so
+      treat it as a smoke signal, not a leaderboard prediction. Kept the
+      conservative default of 6: it clears this scale comfortably and is
+      gentlest on whatever rate limit the harness's real key enforces; 64 is
+      the recommended ceiling if you want more throughput.
+- [x] Pushed to GitHub — the Actions workflow builds + pushes the
+      `linux/amd64` image automatically on push.
+- [ ] **You still need to**: flip the GHCR package to **public** (GHCR
+      defaults new packages to private) and confirm the image is publicly
+      pullable before the July 11, 15:00 UTC deadline.
+- [ ] **Do this last, right before submitting**: the Dockerfile bakes in
+      `CHEAP_MODEL_OVERRIDE=kimi-k2p7-code` **and**
+      `STRONG_MODEL_OVERRIDE=kimi-k2p7-code` — i.e. **both** tiers run on
+      k2p7-code. The leaderboard ranks by *token count*, not dollars, and on
+      this model family k2p7-code emits the fewest total tokens (it beat k2p6
+      on both logical_reasoning format-compliance and math_reasoning token
+      count), so it wins every tier. `RETRY_MODEL_OVERRIDE=minimax-m3` picks a
+      *different* family for the second attempt, so a rate-limited or down
+      primary isn't retried the exact same way. The cheap/strong split still
+      matters even with one primary model: it drives per-category
+      `reasoning_effort` (`none` on the four simple categories — the real
+      token lever, ~85-90% of completion tokens on those) and the token
+      budget in `prompts.py`.
       Once the official launch-day `ALLOWED_MODELS` is confirmed, re-verify
       these ids still match exactly (aliases/versions can change) and that
-      pricing hasn't shifted — don't trust parameter count in the name
-      (`gpt-oss-120b` is the cheapest model on Fireworks despite the largest
-      number in its name). If anything differs, update the `ENV` lines,
-      rebuild, and push one final time. Skipping this isn't a hard failure —
-      an id that no longer matches `ALLOWED_MODELS` is just ignored and the
-      heuristic fallback still produces a valid, scoreable submission — but
-      tier assignment may end up backwards on cost or re-trigger the
-      k2p6-style CoT-dump failure.
+      k2p7-code is still the fewest-token option — don't trust parameter
+      count in the name (`gpt-oss-120b` is the cheapest model on Fireworks
+      despite the largest number in its name). If anything differs, update the
+      `ENV` lines, rebuild, and push one final time. Skipping this isn't a
+      hard failure — an id that no longer matches `ALLOWED_MODELS` is just
+      ignored and the heuristic fallback still produces a valid, scoreable
+      submission — but tier assignment may end up suboptimal on tokens or
+      re-trigger the k2p6-style CoT-dump failure.
 
 ## Where to spend your remaining time
 
