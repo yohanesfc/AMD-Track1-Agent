@@ -43,7 +43,15 @@ def load_allowed_models() -> list[str]:
 
 def select_tiers(models: list[str]) -> dict[str, str]:
     """
-    Returns {"cheap": model_id, "strong": model_id}.
+    Returns {"cheap": model_id, "strong": model_id, "retry": model_id}.
+
+    "retry" is the second-attempt model after a failed call. It should be
+    a DIFFERENT model from the primary when possible: if the primary is
+    down or rate-limited (likely on launch day, when every submission
+    hammers the same favorite), retrying the same model tends to fail the
+    same way. RETRY_MODEL_OVERRIDE picks it explicitly; the fallback is
+    the largest allowed model that differs from "strong", or "strong"
+    itself when only one model exists.
 
     Checks CHEAP_MODEL_OVERRIDE / STRONG_MODEL_OVERRIDE env vars first --
     useful because the size-in-name heuristic can be flat-out wrong (e.g.
@@ -64,11 +72,18 @@ def select_tiers(models: list[str]) -> dict[str, str]:
 
     cheap_override = os.environ.get("CHEAP_MODEL_OVERRIDE", "").strip()
     strong_override = os.environ.get("STRONG_MODEL_OVERRIDE", "").strip()
+    retry_override = os.environ.get("RETRY_MODEL_OVERRIDE", "").strip()
 
     cheap = cheap_override if cheap_override in models else default_cheap
     strong = strong_override if strong_override in models else default_strong
 
-    return {"cheap": cheap, "strong": strong}
+    if retry_override in models:
+        retry = retry_override
+    else:
+        others = [m for m in ranked if m != strong]
+        retry = others[-1] if others else strong
+
+    return {"cheap": cheap, "strong": strong, "retry": retry}
 
 
 def resolve_model(tier: str, tiers: dict[str, str]) -> str:

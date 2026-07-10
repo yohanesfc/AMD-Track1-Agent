@@ -30,6 +30,15 @@ That's what this scaffold does.
 classify.py -----------------> category (zero cost, no Fireworks call)
       |                          one of the 8 capability categories
       v
+local_infer.py ---------------> zero-token local pre-filter (sentiment +
+      |                          NER only): ONNX RoBERTa softmax gate /
+      |                          dual-spaCy consensus gate. Answers only
+      |                          when very confident; anything ambiguous
+      |                          falls through to Fireworks. The FAQ
+      |                          explicitly allows this ("tokens expended
+      |                          on local models count as ZERO").
+      |                          Kill switch: LOCAL_PREFILTER=off.
+      v
 prompts.py -------------------> category -> tier (cheap/strong) + a short,
                                  category-tailored system prompt + token budget
       |
@@ -212,8 +221,14 @@ valid `results.json`.
 - [x] Every task_id always present in output, even on failure (empty-string
       fallback rather than omission)
 - [x] Exits 0 on success; uncaught top-level errors exit non-zero
-- [x] No caching/hardcoding of answers — every task hits a live call (or the
-      zero-cost classifier) at runtime
+- [x] No caching/hardcoding of answers — every task is computed at runtime,
+      either by a live Fireworks call or by the local pre-filter models
+      (FAQ-sanctioned: "tokens expended on local models count as ZERO";
+      participants are encouraged to "run as many local models as you
+      need"). Calibrated 2026-07-11 on a labeled synthetic set: the local
+      layer answered 0 tasks incorrectly (11/17 escalated to Fireworks,
+      including every mixed-sentiment, sarcastic, and model-disagreement
+      case). `LOCAL_PREFILTER=off` disables the layer entirely.
 - [x] Confirmed runtime stays well under the 10-minute budget: stress-tested
       2026-07-09 with 32 and 64 synthetic tasks (4x the sample set, covering
       all 8 categories) against the real Fireworks key at

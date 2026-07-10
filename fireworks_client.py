@@ -17,9 +17,21 @@ class FireworksClient:
         self.api_key = os.environ["FIREWORKS_API_KEY"]
 
     async def complete(
-        self, model: str, system_prompt: str, user_prompt: str, max_tokens: int
+        self,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        reasoning_effort: str | None = None,
     ) -> tuple[str, int, int]:
-        """Returns (answer_text, tokens_used, latency_ms)."""
+        """Returns (answer_text, tokens_used, latency_ms).
+
+        reasoning_effort suppresses hidden chain-of-thought, which counts
+        toward total_tokens even though the judge never sees it. Support
+        varies by model, and ALLOWED_MODELS isn't known until launch day --
+        so a 4xx on a call that set the param is retried once without it
+        rather than treated as a task failure.
+        """
         payload = {
             "model": model,
             "messages": [
@@ -29,6 +41,8 @@ class FireworksClient:
             "temperature": 0.2,
             "max_tokens": max_tokens,
         }
+        if reasoning_effort is not None:
+            payload["reasoning_effort"] = reasoning_effort
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -38,6 +52,11 @@ class FireworksClient:
             resp = await client.post(
                 f"{self.base_url}/chat/completions", json=payload, headers=headers
             )
+            if reasoning_effort is not None and 400 <= resp.status_code < 500:
+                payload.pop("reasoning_effort")
+                resp = await client.post(
+                    f"{self.base_url}/chat/completions", json=payload, headers=headers
+                )
             resp.raise_for_status()
             data = resp.json()
         latency_ms = int((time.perf_counter() - start) * 1000)

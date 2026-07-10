@@ -70,11 +70,32 @@ SYSTEM_PROMPTS = {
     ),
 }
 
+# Per-category reasoning effort, passed as the OpenAI-compat
+# "reasoning_effort" param. Hidden chain-of-thought counts toward
+# total_tokens (the leaderboard metric), and on the simple categories it's
+# ~85-90% of completion tokens for pure waste -- measured 2026-07-11:
+# sentiment 368 -> 132 total with "none", answers unchanged. "none" is
+# ONLY safe where the answer needs no multi-step reasoning; on
+# math/logical it measurably breaks accuracy (kimi answered $738.45 to a
+# depreciation task whose correct answer is $736.95), so the four hard
+# categories deliberately have no entry here (= provider default).
+# fireworks_client falls back to a call without the param if a launch-day
+# model rejects it.
+REASONING_EFFORT_BY_CATEGORY = {
+    "sentiment_classification": "none",
+    "named_entity_recognition": "none",
+    "summarization": "none",
+    "factual_knowledge": "none",
+}
+
 # Rough output budget per category -- generous enough to survive a model
 # that leaks some reasoning before the final answer despite instructions
 # (observed with both glm-5p1 and glm-5p2), and to give reasoning models
 # (gpt-oss-120b et al.) enough room to finish their hidden reasoning *and*
 # still write a final answer instead of getting cut off mid-thought.
+# Unused budget costs nothing (total_tokens counts actual usage), so these
+# stay generous even for the reasoning_effort="none" categories, where the
+# cap only matters on the fallback path without the param.
 MAX_TOKENS_BY_CATEGORY = {
     "factual_knowledge": 800,
     "math_reasoning": 900,

@@ -1,1 +1,8 @@
 httpx==0.27.2
+# Local zero-token pre-filter (local_infer.py) -- ONNX sentiment + spaCy NER
+onnxruntime
+tokenizers
+numpy
+spacy
+# Build-time model download only (see Dockerfile)
+huggingface_hub

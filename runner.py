@@ -25,7 +25,13 @@ import sys
 import time
 
 from classify import classify
-from prompts import SYSTEM_PROMPTS, TIER_BY_CATEGORY, MAX_TOKENS_BY_CATEGORY
+from local_infer import try_local
+from prompts import (
+    SYSTEM_PROMPTS,
+    TIER_BY_CATEGORY,
+    MAX_TOKENS_BY_CATEGORY,
+    REASONING_EFFORT_BY_CATEGORY,
+)
 from model_select import load_allowed_models, select_tiers, resolve_model
 from fireworks_client import FireworksClient
 
@@ -46,15 +52,32 @@ async def solve_task(client: FireworksClient, tiers: dict, sem: asyncio.Semaphor
     task_id = task["task_id"]
     prompt = task["prompt"]
     category = classify(prompt)
+
+    # Zero-token local pre-filter (FAQ: local model tokens count as zero).
+    # Only answers high-confidence sentiment/NER; anything ambiguous falls
+    # through to the normal Fireworks path below.
+    local_answer = try_local(category, prompt)
+    if local_answer is not None:
+        log(f"[local] {task_id} category={category} tokens=0")
+        return {"task_id": task_id, "answer": local_answer}
+
     tier = TIER_BY_CATEGORY.get(category, "strong")
     model = resolve_model(tier, tiers)
     system_prompt = SYSTEM_PROMPTS.get(category, SYSTEM_PROMPTS["factual_knowledge"])
     max_tokens = MAX_TOKENS_BY_CATEGORY.get(category, 300)
+    reasoning_effort = REASONING_EFFORT_BY_CATEGORY.get(category)
+
+    # Second attempt goes to a different model when one is available --
+    # if the primary is rate-limited/down, same-model retries tend to
+    # fail the same way. Falls back to strong if retry == primary.
+    fallback = tiers["retry"] if tiers["retry"] != model else tiers["strong"]
 
     async with sem:
-        for attempt, use_model in enumerate([model, tiers["strong"]]):
+        for attempt, use_model in enumerate([model, fallback]):
             try:
-                answer, tokens, latency_ms = await client.complete(use_model, system_prompt, prompt, max_tokens)
+                answer, tokens, latency_ms = await client.complete(
+                    use_model, system_prompt, prompt, max_tokens, reasoning_effort
+                )
                 if answer:
                     warn = " ⚠ SLOW (near 30s limit)" if latency_ms >= SLOW_CALL_WARNING_MS else ""
                     log(
@@ -100,7 +123,7 @@ async def run():
 
     models = load_allowed_models()
     tiers = select_tiers(models)
-    log(f"Model tiers -> cheap: {tiers['cheap']} | strong: {tiers['strong']}")
+    log(f"Model tiers -> cheap: {tiers['cheap']} | strong: {tiers['strong']} | retry: {tiers['retry']}")
 
     client = FireworksClient()
     sem = asyncio.Semaphore(MAX_CONCURRENCY)
