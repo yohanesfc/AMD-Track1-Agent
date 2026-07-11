@@ -1,25 +1,13 @@
 # Track 1 — General-Purpose AI Agent (Token-Efficient Routing)
 
-Built to the actual AMD Developer Hackathon ACT II Participant Guide spec.
+AMD Developer Hackathon ACT II, Track 1 submission.
 
-## How scoring works (from the participant guide)
+## The idea
 
-1. **Accuracy gate**: an LLM-Judge checks every answer against expected intent.
-   Fall below the threshold → excluded from the leaderboard entirely, tokens
-   don't matter at that point.
-2. **Token efficiency**: submissions that pass the gate are ranked ascending
-   by total tokens recorded by the judging proxy. Fewer tokens = higher rank.
-
-Critically: **local models/tokens count as zero.** All inference that counts
-must go through `FIREWORKS_BASE_URL`. So the actual routing decision in this
-track isn't "local vs. remote" — it's:
-
-1. What can be resolved with **zero-cost deterministic logic** (no model call)?
-2. For everything else, which is the **cheapest Fireworks model in
-   `ALLOWED_MODELS`** that's still likely to pass the accuracy gate for this
-   task's category?
-
-That's what this scaffold does.
+Track 1 scoring is two-stage: an LLM-Judge accuracy gate first, then — only
+for submissions that pass — ranking ascending by total tokens. So the
+optimization target isn't "which model is smartest", it's **the cheapest
+routing that still passes the gate, per task type**.
 
 ## Architecture
 
@@ -27,35 +15,38 @@ That's what this scaffold does.
 /input/tasks.json
       |
       v
-classify.py -----------------> category (zero cost, no Fireworks call)
-      |                          one of the 8 capability categories
+classify.py -----------------> category (zero cost, deterministic regex,
+      |                          no API call) — one of the 8 capability
+      |                          categories
       v
-local_infer.py ---------------> zero-token local pre-filter (sentiment +
-      |                          NER only): ONNX RoBERTa softmax gate /
-      |                          dual-spaCy consensus gate. Answers only
-      |                          when very confident; anything ambiguous
-      |                          falls through to Fireworks. The FAQ
-      |                          explicitly allows this ("tokens expended
-      |                          on local models count as ZERO").
-      |                          Kill switch: LOCAL_PREFILTER=off.
+prompts.py -------------------> category -> tier (cheap/strong), a short
+      |                          category-tailored system prompt, a token
+      |                          budget, and the reasoning-effort setting
       v
-prompts.py -------------------> category -> tier (cheap/strong) + a short,
-                                 category-tailored system prompt + token budget
-      |
-      v
-model_select.py --------------> ALLOWED_MODELS (read from env, never
-                                 hardcoded) -> ranked by inferred parameter
-                                 count -> {"cheap": ..., "strong": ...}
-      |
+model_select.py --------------> ALLOWED_MODELS (read from env at runtime,
+      |                          never hardcoded) -> {"cheap": ..., "strong": ...}
       v
 fireworks_client.py ----------> ONE call to FIREWORKS_BASE_URL with the
-                                 chosen model. Retries once on failure,
-                                 falls back to the strong model as a
-                                 last resort so no task_id is ever omitted.
-      |
+      |                          chosen model. Retries once (different model
+      |                          family) and falls back to the strong model
+      |                          as a last resort, so no task_id is ever
+      |                          omitted from the output.
       v
 /output/results.json
 ```
+
+The single biggest token lever is `reasoning_effort="none"` on the four
+mechanical categories (sentiment, NER, summarization, factual knowledge):
+it suppresses hidden chain-of-thought — ~85–90% of completion tokens on
+those categories — with no measured accuracy cost. The four categories that
+genuinely need multi-step reasoning (math, logic, code debugging, code
+generation) keep a full reasoning budget.
+
+A local-inference pre-filter (`local_infer.py`: int8 ONNX sentiment +
+dual-spaCy NER consensus) is included but ships **disabled**
+(`LOCAL_PREFILTER=off` in the Dockerfile): A/B evaluation showed the API
+path with reasoning switched off is both more accurate and already cheap,
+so the accuracy risk wasn't worth the near-zero token saving.
 
 ## Category → tier mapping
 
@@ -70,60 +61,32 @@ fireworks_client.py ----------> ONE call to FIREWORKS_BASE_URL with the
 | Code debugging | strong | needs to actually understand the bug |
 | Code generation | strong | correctness bar is unforgiving |
 
-This is a **safety-biased default**: failing the accuracy gate scores zero
-regardless of tokens saved, so the harder six categories default to a
-strong model. Tune this table once you've tested against your own eval set — if the cheap
-model holds accuracy on, say, summarization *and* sentiment reliably in
-your testing, that's already reflected here; if it doesn't hold up on your
-test set, move that category to `strong` in `prompts.py`.
+Both tiers run the same primary model; the tiers differ by
+reasoning-effort setting and token budget, with a different model family
+held in reserve as the retry path.
 
 ## `ALLOWED_MODELS` handling
 
-The submitted image never calls a model outside whatever `ALLOWED_MODELS`
-the harness injects at runtime — that check is unconditional in
-`model_select.py`. Within that constraint, `select_tiers()` decides which
-allowed model is "cheap" and "strong":
-
-1. **Optional override** — `CHEAP_MODEL_OVERRIDE` / `STRONG_MODEL_OVERRIDE`
-   env vars, if set *and* present in the real `ALLOWED_MODELS`, are used
-   directly (independently of each other — you can set just one). This
-   exists because parameter count in a model's name doesn't reliably
-   predict its price or even appear at all — `gpt-oss-120b` is the
-   cheapest model on Fireworks despite the biggest number in its name,
-   while ids like `minimax-m3` or `kimi-k2p7-code` carry no
-   parameter-count token whatsoever, so the heuristic can't rank them
-   against each other. These are **not** baked into the Dockerfile by
-   default (see the compliance checklist below for why, and for the one
-   deliberate exception).
-2. **Fallback heuristic** — for any tier without a matching override,
-   `_inferred_size()` parses a parameter-count token out of each model ID
-   (`8b`, `70b`, `0p5b`) and ranks ascending: smallest → cheap, largest →
-   strong. This is a reasonable default, not a guarantee — as above, it can
-   be flat-out wrong, or a no-op, for model families that don't encode
-   size in the id.
-
-Practical effect: without the override, tier assignment might occasionally
-put the wrong model in the wrong tier (real cost, not accuracy) — the
-container still produces valid, scoreable output either way. With a
-correctly-set override, tiering matches real pricing. See the compliance
-checklist for when/how to set the override for your final submission.
+The container never calls a model outside whatever `ALLOWED_MODELS` the
+harness injects at runtime — that check is unconditional in
+`model_select.py`. Optional `CHEAP_MODEL_OVERRIDE` / `STRONG_MODEL_OVERRIDE`
+/ `RETRY_MODEL_OVERRIDE` env vars express a *preference*, but each is
+validated against the real injected list first; anything not present is
+ignored and a parameter-count heuristic assigns tiers instead. Either way
+the container produces valid, scoreable output.
 
 ## Setup & local testing
 
 ```bash
-cp .env.example .env
-# edit .env: put in your own Fireworks API key + a couple of real model IDs
-# you have access to, for local testing only
-
+cp .env.example .env   # add your own Fireworks key + model IDs (local testing only)
 pip install -r requirements.txt
 ./scripts/run_local.sh
 ```
 
 This runs `runner.py` against `data/tasks.json` (8 sample tasks, one per
-category) and prints `data/results.json`. Read the classification output
-in the log lines to sanity-check the router's decisions.
+category) and writes `data/results.json`.
 
-Quick correctness check on the classifier alone (no API calls, free):
+Classifier-only check (no API calls, free):
 ```bash
 python -c "
 import json
@@ -133,59 +96,21 @@ for t in json.load(open('data/tasks.json')):
 "
 ```
 
-## Build & push (must be linux/amd64) — via GitHub Actions (recommended)
+## Build & image
 
-Your OCI server is ARM64, so a plain `docker build` there produces an ARM64
-image that the judging VM can't pull. Easiest fix: let GitHub build it for
-you on a real amd64 runner. `.github/workflows/docker-build.yml` is already
-set up to do this.
+`.github/workflows/docker-build.yml` builds a **linux/amd64** image on every
+push and publishes it to GHCR:
 
+```
+ghcr.io/yohanesfc/track1-agent:latest
+```
+
+Verify the platform:
 ```bash
-cd track1-agent
-git init
-git add .
-git commit -m "Track 1 agent"
-gh repo create track1-agent --public --source=. --push
-# or manually: create the repo on github.com, then
-#   git remote add origin https://github.com/<you>/track1-agent.git
-#   git branch -M main
-#   git push -u origin main
+docker manifest inspect ghcr.io/yohanesfc/track1-agent:latest
 ```
 
-That push triggers the workflow automatically. Watch it run under the
-**Actions** tab of your repo. On success it pushes:
-
-```
-ghcr.io/<your-github-username>/track1-agent:latest
-```
-
-**One manual step after the first successful run:** GitHub Container
-Registry defaults new packages to **private**. Go to your GitHub profile →
-**Packages** → `track1-agent` → **Package settings** → change visibility to
-**Public**. The submission rules require the image to be publicly pullable —
-double check this before submitting.
-
-Verify it's really `linux/amd64`:
-```bash
-docker manifest inspect ghcr.io/<you>/track1-agent:latest
-```
-
-## Build & push manually (only if you're not using GitHub Actions)
-
-The judging VM runs `linux/amd64`. If you're building locally on Apple
-Silicon or your ARM64 OCI box:
-
-```bash
-docker buildx build --platform linux/amd64 --tag ghcr.io/<you>/track1-agent:latest --push .
-```
-
-Otherwise a standard build is fine:
-```bash
-docker build --tag ghcr.io/<you>/track1-agent:latest .
-docker push ghcr.io/<you>/track1-agent:latest
-```
-
-## Test the real container contract locally
+## Container contract test
 
 ```bash
 mkdir -p /tmp/in /tmp/out
@@ -196,94 +121,25 @@ docker run --rm \
   -e FIREWORKS_API_KEY=your_key \
   -e FIREWORKS_BASE_URL=https://api.fireworks.ai/inference/v1 \
   -e ALLOWED_MODELS=accounts/fireworks/models/llama-v3p1-8b-instruct,accounts/fireworks/models/llama-v3p1-70b-instruct \
-  ghcr.io/<you>/track1-agent:latest
+  ghcr.io/yohanesfc/track1-agent:latest
 
 cat /tmp/out/results.json
 ```
 
-This mirrors exactly what the harness does: mounts `/input` and `/output`,
-injects the three env vars, and expects the container to exit 0 with a
-valid `results.json`.
+This mirrors exactly what the judging harness does: mounts `/input` and
+`/output`, injects the three env vars, and expects the container to exit 0
+with a valid `results.json`.
 
-## Compliance checklist (from the participant guide)
+## Compliance & validation
 
-- [x] Reads `/input/tasks.json`, writes `/output/results.json`
-- [x] Reads `FIREWORKS_API_KEY` / `FIREWORKS_BASE_URL` / `ALLOWED_MODELS`
-      purely from env — no hardcoded key or URL. `model_select.py` optionally
-      accepts `CHEAP_MODEL_OVERRIDE`/`STRONG_MODEL_OVERRIDE` as a
-      *preference*, but always validates them against the real
-      `ALLOWED_MODELS` at runtime and falls back to the naming heuristic if
-      either isn't present — it never calls a model outside the injected
-      list. The Dockerfile bakes in a tested, confirmed-correct set of
-      these as of 2026-07-09 (see the final-step item below for why this
-      still needs a re-check before submitting).
-- [x] No `.env` bundled in the image (`.dockerignore`)
-- [x] Every task_id always present in output, even on failure (empty-string
-      fallback rather than omission)
-- [x] Exits 0 on success; uncaught top-level errors exit non-zero
-- [x] No caching/hardcoding of answers — every task is computed at runtime,
-      either by a live Fireworks call or by the local pre-filter models
-      (FAQ-sanctioned: "tokens expended on local models count as ZERO";
-      participants are encouraged to "run as many local models as you
-      need"). Calibrated 2026-07-11 on a labeled synthetic set: the local
-      layer answered 0 tasks incorrectly (11/17 escalated to Fireworks,
-      including every mixed-sentiment, sarcastic, and model-disagreement
-      case). `LOCAL_PREFILTER=off` disables the layer entirely.
-- [x] Confirmed runtime stays well under the 10-minute budget: stress-tested
-      2026-07-11 at judging scale — 1,200 synthetic tasks (150x the sample
-      set, covering all 8 categories) against the real Fireworks key at
-      `MAX_CONCURRENCY` 64 and 200. Both runs answered all 1,200 in ~120s
-      (~4.5x under the 540s deadline guard) with zero hard failures and zero
-      lost task_ids. Under this load the real Fireworks key *does* rate-limit
-      (HTTP 429: ~21% of calls at concurrency 64, ~30% at 200) — every 429
-      was absorbed by the retry + fallback path, so no task was lost. Tail
-      latency at concurrency 200 brushes the 30s/request rule (p99 27s, max
-      32s), while concurrency 64 stays safe (p99 16s, max 24s). Routing also
-      held accuracy under load: an objective spot-check (math/logic/factual/
-      sentiment, known ground truth) scored 100% with 0 degenerate answers
-      across all 1,200 outputs — synthetic set, not the official judge, so
-      treat it as a smoke signal, not a leaderboard prediction. Kept the
-      conservative default of 6: it clears this scale comfortably and is
-      gentlest on whatever rate limit the harness's real key enforces; 64 is
-      the recommended ceiling if you want more throughput.
-- [x] Pushed to GitHub — the Actions workflow builds + pushes the
-      `linux/amd64` image automatically on push.
-- [ ] **You still need to**: flip the GHCR package to **public** (GHCR
-      defaults new packages to private) and confirm the image is publicly
-      pullable before the July 11, 15:00 UTC deadline.
-- [ ] **Do this last, right before submitting**: the Dockerfile bakes in
-      `CHEAP_MODEL_OVERRIDE=kimi-k2p7-code` **and**
-      `STRONG_MODEL_OVERRIDE=kimi-k2p7-code` — i.e. **both** tiers run on
-      k2p7-code. The leaderboard ranks by *token count*, not dollars, and on
-      this model family k2p7-code emits the fewest total tokens (it beat k2p6
-      on both logical_reasoning format-compliance and math_reasoning token
-      count), so it wins every tier. `RETRY_MODEL_OVERRIDE=minimax-m3` picks a
-      *different* family for the second attempt, so a rate-limited or down
-      primary isn't retried the exact same way. The cheap/strong split still
-      matters even with one primary model: it drives per-category
-      `reasoning_effort` (`none` on the four simple categories — the real
-      token lever, ~85-90% of completion tokens on those) and the token
-      budget in `prompts.py`.
-      Once the official launch-day `ALLOWED_MODELS` is confirmed, re-verify
-      these ids still match exactly (aliases/versions can change) and that
-      k2p7-code is still the fewest-token option — don't trust parameter
-      count in the name (`gpt-oss-120b` is the cheapest model on Fireworks
-      despite the largest number in its name). If anything differs, update the
-      `ENV` lines, rebuild, and push one final time. Skipping this isn't a
-      hard failure — an id that no longer matches `ALLOWED_MODELS` is just
-      ignored and the heuristic fallback still produces a valid, scoreable
-      submission — but tier assignment may end up suboptimal on tokens or
-      re-trigger the k2p6-style CoT-dump failure.
-
-## Where to spend your remaining time
-
-1. Run `scripts/run_local.sh` against harder/adversarial variants of each
-   category (unseen prompt variants are what's actually evaluated) and watch
-   for any category where the `cheap` tier visibly struggles — move it to
-   `strong` in `prompts.py` if so.
-2. Once `ALLOWED_MODELS` is published, re-check `select_tiers()` picked the
-   models you'd expect.
-3. Build, push, and run the container contract test above end-to-end at
-   least once before the deadline — a broken `/input`/`/output` contract or
-   a non-`linux/amd64` image scores zero regardless of how good the routing
-   logic is.
+- Reads `/input/tasks.json`, writes `/output/results.json`; **every task_id
+  is always present** in the output, even on failure; exits 0 on success.
+- `FIREWORKS_API_KEY` / `FIREWORKS_BASE_URL` / `ALLOWED_MODELS` come purely
+  from env — no hardcoded key, URL, or model list. No `.env` in the image.
+- No caching or hardcoding of answers — every task is computed at runtime
+  by a live Fireworks call.
+- Stress-tested at judging scale: 1,200 synthetic tasks (150× the sample
+  set, all 8 categories) against the live Fireworks API at concurrency 64
+  and 200. All 1,200 answered in ~120s (~4.5× under the time budget), zero
+  hard failures, zero lost task_ids. Rate-limit 429s under load were fully
+  absorbed by the retry + fallback path.
