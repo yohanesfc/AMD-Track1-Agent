@@ -25,7 +25,14 @@ COPY classify.py prompts.py model_select.py fireworks_client.py runner.py local_
 
 # Kill switch for the local pre-filter -- flip to "off" and rebuild to get
 # a pure-Fireworks pipeline without touching code.
-ENV LOCAL_PREFILTER=on
+# OFF as of 2026-07-11: an A/B accuracy eval (minimax-m3 judge) showed the
+# dual-spaCy NER path drops entities (e.g. "Jordan"/person, "Nairobi,Kenya")
+# -> 67% vs 100% for the Fireworks path, the likely cause of the 84.2%
+# leaderboard accuracy. NER via API with reasoning_effort="none" is both
+# accurate (100%) and cheap (~100 tok/task), so the local path costs
+# accuracy for negligible token savings. reasoning_effort="none" is kept --
+# it's the real token lever and measured zero accuracy cost.
+ENV LOCAL_PREFILTER=off
 
 # TOKEN-count-based overrides (the leaderboard metric is total tokens, not
 # dollars), tested 2026-07-11 against the real ALLOWED_MODELS family
